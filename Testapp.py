@@ -224,60 +224,81 @@ SUCCESS_STORIES = {
 # ------------------------------------------------------------
 # Scoring & Analysis
 # ------------------------------------------------------------
+def score_help_row(label: str, text: str, value: int):
+    st.markdown(f"**{label}** ℹ️", help=text)
+    st.write(value)
+    
 def calculate_comprehensive_score(service: Dict, requirements: Dict, architecture_context: Dict) -> Tuple[int, Dict]:
-    score_breakdown = {k: 0 for k in ["functional_alignment", "architectural_fit", "compliance_match",
-                                      "integration_synergy", "cost_efficiency", "industry_relevance", "innovation_factor"]}
+    score_breakdown = {k: 0 for k in [
+        "functional_alignment", "architectural_fit", "compliance_match",
+        "integration_synergy", "cost_efficiency", "industry_relevance", "innovation_factor"
+    ]}
     use_case_text = requirements.get("use_case", "").lower()
     selected_capabilities = requirements.get("capabilities", {})
     industry = requirements.get("industry", "")
     selected_services = architecture_context.get("selected_services", [])
 
-    # Functional alignment (max 30)
+    # Boosted max caps
+    caps = {
+        "functional_alignment": 35,   # higher than before
+        "architectural_fit": 20,
+        "compliance_match": 15,
+        "integration_synergy": 15,
+        "cost_efficiency": 10,
+        "industry_relevance": 5,
+        "innovation_factor": 5,
+    }
+
+    # Functional (0-35)
     service_use_cases = [uc.lower() for uc in service.get("use_cases", [])]
-    capability_matches = sum(1 for cap, val in selected_capabilities.items() if val and cap.lower().replace(" ", "_") in " ".join(service_use_cases))
-    text_matches = sum(3 for uc in service_use_cases if uc in use_case_text)
-    score_breakdown["functional_alignment"] = min(30, capability_matches * 5 + text_matches)
+    capability_matches = sum(
+        1 for cap, val in selected_capabilities.items()
+        if val and cap.lower().replace(" ", "_") in " ".join(service_use_cases)
+    )
+    text_matches = sum(4 for uc in service_use_cases if uc in use_case_text)  # slightly higher
+    score_breakdown["functional_alignment"] = min(caps["functional_alignment"], capability_matches * 5 + text_matches)
 
-    # Architectural fit (max 20)
-    importance_scores = {"critical": 20, "high": 15, "medium": 10, "low": 5}
-    score_breakdown["architectural_fit"] = importance_scores.get(service.get("architectural_importance", "medium"), 10)
+    # Architectural fit (0-20)
+    importance_scores = {"critical": 20, "high": 16, "medium": 11, "low": 6}
+    score_breakdown["architectural_fit"] = importance_scores.get(service.get("architectural_importance", "medium"), 11)
 
-    # Compliance match (max 15)
+    # Compliance (0-15)
     if industry in INDUSTRY_COMPLIANCE:
         req = INDUSTRY_COMPLIANCE[industry]
         frameworks = req["compliance_frameworks"]
         compliance_score = sum(3 for f in frameworks if f in service.get("compliance", []))
         if service["name"] in req["required_services"]:
             compliance_score += 6
-        score_breakdown["compliance_match"] = min(15, compliance_score)
+        score_breakdown["compliance_match"] = min(caps["compliance_match"], compliance_score)
 
-    # Integration synergy (max 15)
+    # Integration (0-15)
     integration_partners = service.get("integrates_with", [])
     synergy_score = sum(2 for selected in selected_services if any(p in selected for p in integration_partners))
-    score_breakdown["integration_synergy"] = min(15, synergy_score)
+    score_breakdown["integration_synergy"] = min(caps["integration_synergy"], synergy_score)
 
-    # Cost efficiency (max 10)
-    cost_scores = {"free": 10, "low": 8, "medium": 6, "high": 3, "variable": 5}
+    # Cost (0-10)
+    cost_scores = {"free": 10, "low": 8, "medium": 6, "high": 4, "variable": 5}
     score_breakdown["cost_efficiency"] = cost_scores.get(service.get("cost_tier", "medium"), 6)
 
-    # Industry relevance (max 5)
+    # Industry relevance (0-5)
     if industry in ["healthcare", "financial", "government"] and service.get("category") in ["Security & Identity", "Monitoring & Management"]:
         score_breakdown["industry_relevance"] = 5
-    elif industry in ["technology"] and service.get("category") in ["AI & Machine Learning", "DevOps & Developer Tools"]:
+    elif industry in ["technology", "startup"] and service.get("category") in ["AI & Machine Learning", "DevOps & Developer Tools"]:
+        score_breakdown["industry_relevance"] = 4
+    elif industry == "manufacturing" and service.get("category") in ["IoT & Edge", "Analytics & BI"]:
         score_breakdown["industry_relevance"] = 4
 
-    # Innovation factor (max 5)
+    # Innovation (0-5)
     innovative_services = ["Azure OpenAI Service", "Microsoft Fabric", "Azure Digital Twins", "Azure Container Apps", "Azure Machine Learning"]
     if service["name"] in innovative_services:
         score_breakdown["innovation_factor"] = 5
     elif service.get("category") == "AI & Machine Learning":
         score_breakdown["innovation_factor"] = 3
 
-    # Normalize to 100
-    max_possible = 30 + 20 + 15 + 15 + 10 + 5 + 5
-    raw_total = sum(score_breakdown.values())
-    normalized_total = round((raw_total / max_possible) * 100)
-    return normalized_total, score_breakdown
+    raw = sum(score_breakdown.values())
+    max_possible = sum(caps.values())
+    normalized = round((raw / max_possible) * 100)
+    return normalized, score_breakdown
 
 def detect_architecture_patterns(selected_services: List[str], requirements: Dict) -> List[Dict]:
     patterns = []
@@ -504,133 +525,158 @@ def main():
         ])
 
         # Tab 1: Recommended Services
-        with tab1:
-            st.header("🎯 Recommended Azure Services")
-            for i, svc in enumerate(top_services, 1):
-                with st.expander(f"{i}. {svc['name']} — Score {svc['total_score']}/100", expanded=i <= 5):
-                    col1, col2 = st.columns([2, 1])
-                    with col1:
-                        st.write(f"**Category:** {svc['category']}")
-                        st.write(f"**Description:** {svc['description']}")
-                        st.write(f"**Role:** {svc['data_role']}")
-                        st.write("**Score Breakdown:**")
-                        bd = svc["score_breakdown"]
-                        score_help_row("Functional Alignment", "Match to use case and selected capabilities.", bd["functional_alignment"])
-                        score_help_row("Architectural Fit", "Importance of this service in target architecture.", bd["architectural_fit"])
-                        score_help_row("Compliance Match", "Alignment to industry/regulatory frameworks.", bd["compliance_match"])
-                        score_help_row("Integration Synergy", "Fit with other selected services.", bd["integration_synergy"])
-                        score_help_row("Cost Efficiency", "Relative cost tier vs. scale.", bd["cost_efficiency"])
-                        score_help_row("Industry Relevance", "Relevance to the chosen industry.", bd["industry_relevance"])
-                        score_help_row("Innovation Factor", "Next-gen/AI-oriented services.", bd["innovation_factor"])
-                    with col2:
-                        st.metric("Total Score", f"{svc['total_score']}/100")
-                        st.write(f"**Cost Tier:** {svc['cost_tier'].title()}")
-                        st.write(f"[Pricing]({svc['pricing']})")
-                        st.write(f"[Docs]({svc['docs']})")
+        # Tab 1: Recommended Services
+with tab1:
+    st.header("🎯 Recommended Azure Services")
+    for i, svc in enumerate(top_services, 1):
+        with st.expander(f"{i}. {svc['name']} — Score {svc['total_score']}/100", expanded=i <= 5):
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.write(f"**Category:** {svc['category']}")
+                st.write(f"**Description:** {svc['description']}")
+                st.write(f"**Role:** {svc['data_role']}")
+                st.write("**Score Breakdown:**")
+                bd = svc["score_breakdown"]
+                score_help_row("Functional Alignment", "Match to use case and capabilities.", bd["functional_alignment"])
+                score_help_row("Architectural Fit", "Importance of this service in target architecture.", bd["architectural_fit"])
+                score_help_row("Compliance Match", "Alignment to industry/regulatory frameworks.", bd["compliance_match"])
+                score_help_row("Integration Synergy", "Fit with other selected services.", bd["integration_synergy"])
+                score_help_row("Cost Efficiency", "Relative cost tier vs. scale.", bd["cost_efficiency"])
+                score_help_row("Industry Relevance", "Relevance to the chosen industry.", bd["industry_relevance"])
+                score_help_row("Innovation Factor", "Next-gen/AI-oriented services.", bd["innovation_factor"])
+
+            with col2:
+                st.metric("Total Score", f"{svc['total_score']}/100")
+                st.write(f"**Cost Tier:** {svc['cost_tier'].title()}")
+                st.write(f"[Pricing]({svc['pricing']})")
+                st.write(f"[Docs]({svc['docs']})")
 
         # Tab 2: Architecture Patterns
         with tab2:
-            st.header("🏗️ Architecture Patterns (with migration hints)")
-            for p in patterns[:4]:
-                with st.container():
-                    st.subheader(p["name"])
-                    st.write(p["description"])
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Completeness", p["completeness"].replace("_", " ").title())
-                    c2.metric("Complexity", p["complexity"].title())
-                    c3.metric("Timeline", p["timeline"])
-                    st.write(f"Required coverage: {p['required_coverage']} | Recommended: {p['recommended_coverage']}")
-                    if p["missing_required"]:
-                        st.error(f"Missing required: {', '.join(p['missing_required'])}")
-                    if p["missing_recommended"]:
-                        st.info(f"Consider adding: {', '.join(p['missing_recommended'])}")
-                    if p["migration_notes"]:
-                        st.warning("Migration: " + " | ".join(p["migration_notes"]))
-                    st.divider()
+    st.header("🏗️ Architecture Patterns (with migration & external cues)")
+    for p in detected_patterns[:4]:
+        st.subheader(p["name"])
+        st.write(p["description"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Completeness", p["completeness"].replace("_", " ").title())
+        c2.metric("Complexity", p["complexity"].title())
+        c3.metric("Timeline", p["timeline"])
+        st.write(f"Required: {p['required_coverage']} | Recommended: {p['recommended_coverage']} | Optional hits: {p['optional_coverage']}")
+        if p.get("migration_notes"):
+            st.warning("Migration / External: " + " | ".join(p["migration_notes"]))
+        if p["missing_required"]:
+            st.error(f"Missing required: {', '.join(p['missing_required'])}")
+        if p["missing_recommended"]:
+            st.info(f"Consider adding: {', '.join(p['missing_recommended'])}")
+        st.divider()
 
         # Tab 3: Cost Analysis
-        with tab3:
-            st.header("💰 Cost Analysis")
-            mode = st.radio("Cost Mode", ["Pay-as-you-go (default)", "MSX / MACC-adjusted"], horizontal=True)
-            st.caption("Pay-as-you-go view; connect MSX/MACC to include committed-spend and ACR offsets.")
-            col1, col2, col3 = st.columns(3)
-            if mode == "Pay-as-you-go (default)":
-                col1.metric("Monthly (PAYG)", f"${cost['total_monthly']:,.2f}")
-                col2.metric("Annual (PAYG)", f"${cost['total_annual']:,.2f}")
-                col3.metric("Annual Savings vs monthly x12", f"${cost['total_monthly']*12 - cost['total_annual']:,.2f}")
-            else:
-                mac_discount = st.slider("MACC discount (%)", 0, 30, 10)
-                acr_offset = st.slider("ACR offset ($/month)", 0, 50000, 5000, step=500)
-                monthly_adj = max(0, cost["total_monthly"] * (1 - mac_discount / 100) - acr_offset)
-                col1.metric("Monthly (MSX/MACC)", f"${monthly_adj:,.2f}")
-                col2.metric("Annual (MSX/MACC)", f"${monthly_adj*12*0.85:,.2f}")
-                col3.metric("Applied discounts", f"{mac_discount}% + ACR ${acr_offset:,.0f}")
-            st.subheader("📊 Cost Breakdown by Category")
-            cost_df = pd.DataFrame([{"Category": k, "Monthly Cost": v} for k, v in cost["category_totals"].items()])
-            if not cost_df.empty:
-                fig = px.pie(cost_df, values="Monthly Cost", names="Category", title="Monthly Cost Distribution")
-                st.plotly_chart(fig, use_container_width=True)
-            st.subheader("🏷️ Service Cost Breakdown")
-            services_df = pd.DataFrame([
-                {"Service": n, "Category": d["category"], "Monthly": d["monthly_estimate"], "Annual": d["annual_estimate"], "Tier": d["cost_tier"]}
-                for n, d in cost["services"].items()
-            ])
-            st.dataframe(services_df, use_container_width=True)
+       # Tab 3: Cost Analysis
+       with tab3:
+    st.header("💰 Cost Analysis")
+    mode = st.radio("Cost Mode", ["Pay-as-you-go (default)", "MSX / MACC-adjusted"], horizontal=True)
+    st.caption("Pay-as-you-go view; MSX/MACC toggle for future live connection.")
+
+    if mode == "Pay-as-you-go (default)":
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Monthly (PAYG)", f"${cost['total_monthly']:,.2f}")
+        col2.metric("Annual (PAYG)", f"${cost['total_annual']:,.2f}")
+        col3.metric("Annual Savings vs monthly x12", f"${cost['total_monthly']*12 - cost['total_annual']:,.2f}")
+    else:
+        mac_discount = st.slider("MACC discount (%)", 0, 30, 10)
+        acr_offset = st.slider("ACR offset ($/month)", 0, 50000, 5000, step=500)
+        monthly_adj = max(0, cost["total_monthly"] * (1 - mac_discount / 100) - acr_offset)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Monthly (MSX/MACC)", f"${monthly_adj:,.2f}")
+        col2.metric("Annual (MSX/MACC)", f"${monthly_adj*12*0.85:,.2f}")
+        col3.metric("Applied discounts", f"{mac_discount}% + ACR ${acr_offset:,.0f}")
+
+    st.subheader("📊 Cost Breakdown by Category")
+    cost_df = pd.DataFrame([{"Category": k, "Monthly Cost": v} for k, v in cost["category_totals"].items()])
+    if cost_df.empty:
+        st.info("No cost data available for the current selection.")
+    else:
+        fig = px.pie(cost_df, values="Monthly Cost", names="Category", title="Monthly Cost Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("🏷️ Service Cost Breakdown")
+    services_df = pd.DataFrame([
+        {"Service": n, "Category": d["category"], "Monthly": d["monthly_estimate"], "Annual": d["annual_estimate"], "Tier": d["cost_tier"]}
+        for n, d in cost["services"].items()
+    ])
+    st.dataframe(services_df, use_container_width=True)
 
         # Tab 4: Architecture Diagram
-        with tab4:
-            st.header("🖼️ Architecture Diagram (draw.io embedded)")
-            st.caption("Diagram uses draw.io viewer. If it does not load, allow third-party content.")
-            st.components.v1.iframe(src=diagram_url, height=600, scrolling=True)
+    with tab4:
+    st.header("🖼️ Architecture Diagram (draw.io embedded)")
+    st.caption("If blocked, click below to open in a new tab.")
+    st.components.v1.iframe(src=diagram_url, height=600, scrolling=True)
+    st.markdown(f"[Open in draw.io viewer]({diagram_url})")
 
         # Tab 5: Validation & Next Steps
-        with tab5:
-            st.header("✅ Validation & Next Steps")
-            if critical:
-                st.error("Critical issues:")
-                for c in critical:
-                    st.error(c)
-            if warnings:
-                st.warning("Warnings:")
-                for w in warnings:
-                    st.warning(w)
-            if recs:
-                st.info("Recommendations:")
-                for r in recs:
-                    st.info(r)
-            st.subheader("Next Steps")
-            for step in [
-                "Review recommended services vs. requirements.",
-                "Pilot core services (top 5) before broad rollout.",
-                "Define landing zone: identity, networking, security, monitoring.",
-                "Plan migration waves and cutover strategy.",
-                "Set cost governance and budgets (FinOps).",
-            ]:
-                st.write(f"- {step}")
+       with tab5:
+    st.header("✅ Validation & Next Steps")
+
+    if critical:
+        st.error("🚨 Critical Issues")
+        for c in critical:
+            st.error(f"• {c}")
+
+    if warnings:
+        st.warning("⚠️ Recommendations")
+        for w in warnings:
+            st.warning(f"• {w}")
+
+    if recs:
+        st.info("💡 Architecture Improvements")
+        for r in recs:
+            st.info(f"• {r}")
+
+    st.subheader("Next Steps")
+    for step in [
+        "Review recommended services vs. requirements.",
+        "Pilot core services (top 5) before broad rollout.",
+        "Define landing zone: identity, networking, security, monitoring.",
+        "Plan migration waves and cutover strategy.",
+        "Set cost governance and budgets (FinOps).",
+    ]:
+        st.write(f"- {step}")
 
         # Tab 6: Business Value & Success Stories
-        with tab6:
-            st.header("📈 Business Value & Success Stories")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Infra cost reduction", f"{business['cost_savings']['infrastructure_reduction']:.0%}")
-            c2.metric("Operational efficiency", f"{business['cost_savings']['operational_efficiency']:.0%}")
-            c3.metric("License optimization", f"{business['cost_savings']['license_optimization']:.0%}")
-            c1.metric("Dev productivity", f"{business['productivity']['developer_productivity']:.0%}")
-            c2.metric("Deployment speed", f"{business['productivity']['deployment_speed']:.0%}")
-            c3.metric("Time to market", f"{business['productivity']['time_to_market']:.0%}")
-            c1.metric("AI/ML services", business["innovation"]["ai_ml_capabilities"])
-            c2.metric("Analytics services", business["innovation"]["analytics_maturity"])
-            c3.metric("Security services", business["innovation"]["security_posture"])
+ with tab6:
+    st.header("📈 Business Value & Success Stories")
 
-            st.subheader("🏆 Success Stories (industry-matched)")
-            if stories:
-                for s in stories:
-                    st.markdown(f"**{s['title']}** — {s['outcome']}  \nServices: {', '.join(s['services'])}  \n[Read more]({s['link']})")
-            else:
-                st.info("Add industry to see relevant success stories from microsoft.com/customers.")
+    st.subheader("Cost Savings")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Infra cost reduction", f"{business['cost_savings']['infrastructure_reduction']:.0%}")
+    c1.caption("Estimate from consolidation + cloud elasticity.")
+    c2.metric("Operational efficiency", f"{business['cost_savings']['operational_efficiency']:.0%}")
+    c2.caption("Efficiency from automation/DevOps practices.")
+    c3.metric("License optimization", f"{business['cost_savings']['license_optimization']:.0%}")
+    c3.caption("Savings via right-sizing and platform services.")
+
+    st.subheader("Productivity")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Dev productivity", f"{business['productivity']['developer_productivity']:.0%}")
+    c1.caption("Faster delivery from CI/CD & platform services.")
+    c2.metric("Deployment speed", f"{business['productivity']['deployment_speed']:.0%}")
+    c2.caption("Reduced cycle time from build → prod.")
+    c3.metric("Time to market", f"{business['productivity']['time_to_market']:.0%}")
+    c3.caption("New features faster via managed/AI services.")
+
+    st.subheader("Innovation & Security")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("AI/ML services", business["innovation"]["ai_ml_capabilities"])
+    c1.caption("Count of AI/ML services selected.")
+    c2.metric("Analytics services", business["innovation"]["analytics_maturity"])
+    c2.caption("Analytics building blocks included.")
+    c3.metric("Security services", business["innovation"]["security_posture"])
+    c3.caption("Security/identity/monitoring components included.")
+
+    st.subheader("🏆 Success Stories (industry-matched)")
+    if stories:
+        for s in stories:
+            st.markdown(f"**{s['title']}** — {s['outcome']}  \nServices: {', '.join(s['services'])}  \n[Read more]({s['link']})")
     else:
-        st.header("Welcome")
-        st.write("Describe your use case, select industry, capabilities, migration inputs, then click Generate Architecture.")
-
-if __name__ == "__main__":
-    main()
+        st.info("Add industry to see relevant success stories from microsoft.com/customers.")
